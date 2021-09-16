@@ -28,6 +28,7 @@ import android.text.TextUtils;
 import android.webkit.CookieSyncManager;
 import com.facebook.AccessToken;
 import com.facebook.AccessTokenSource;
+import com.facebook.AuthenticationToken;
 import com.facebook.FacebookException;
 import com.facebook.FacebookOperationCanceledException;
 import com.facebook.FacebookRequestError;
@@ -36,12 +37,17 @@ import com.facebook.FacebookServiceException;
 import com.facebook.appevents.AppEventsConstants;
 import com.facebook.internal.ServerProtocol;
 import com.facebook.internal.Utility;
+import com.facebook.internal.qualityvalidation.Excuse;
+import com.facebook.internal.qualityvalidation.ExcusesForDesignViolations;
 import java.util.Locale;
 
+@ExcusesForDesignViolations(@Excuse(type = "MISSING_UNIT_TEST", reason = "Legacy"))
 abstract class WebLoginMethodHandler extends LoginMethodHandler {
   private static final String WEB_VIEW_AUTH_HANDLER_STORE =
       "com.facebook.login.AuthorizationClient.WebViewAuthHandler.TOKEN_STORE_KEY";
   private static final String WEB_VIEW_AUTH_HANDLER_TOKEN_KEY = "TOKEN";
+
+  protected AccessTokenSource tokenSource;
 
   protected String getRedirectUrl() {
     return "fb" + FacebookSdk.getApplicationId() + "://authorize";
@@ -101,11 +107,32 @@ abstract class WebLoginMethodHandler extends LoginMethodHandler {
 
   protected Bundle addExtraParameters(Bundle parameters, final LoginClient.Request request) {
     parameters.putString(ServerProtocol.DIALOG_PARAM_REDIRECT_URI, this.getRedirectUrl());
-    parameters.putString(ServerProtocol.DIALOG_PARAM_CLIENT_ID, request.getApplicationId());
+    if (request.isInstagramLogin()) {
+      parameters.putString(ServerProtocol.DIALOG_PARAM_APP_ID, request.getApplicationId());
+    } else {
+      // Client id is a legacy name. IG Login doesn't support it. This line is kept
+      // for FB Login for consistency with old SDKs
+      parameters.putString(ServerProtocol.DIALOG_PARAM_CLIENT_ID, request.getApplicationId());
+    }
+
     parameters.putString(ServerProtocol.DIALOG_PARAM_E2E, loginClient.getE2E());
-    parameters.putString(
-        ServerProtocol.DIALOG_PARAM_RESPONSE_TYPE,
-        ServerProtocol.DIALOG_RESPONSE_TYPE_TOKEN_AND_SIGNED_REQUEST);
+
+    if (request.isInstagramLogin()) {
+      parameters.putString(
+          ServerProtocol.DIALOG_PARAM_RESPONSE_TYPE,
+          ServerProtocol.DIALOG_RESPONSE_TYPE_TOKEN_AND_SCOPES);
+    } else {
+      if (request.getPermissions().contains(LoginConfiguration.OPENID)) {
+        parameters.putString(
+            ServerProtocol.DIALOG_PARAM_RESPONSE_TYPE,
+            ServerProtocol.DIALOG_RESPONSE_TYPE_ID_TOKEN_AND_SIGNED_REQUEST);
+        parameters.putString(ServerProtocol.DIALOG_PARAM_NONCE, request.getNonce());
+      } else {
+        parameters.putString(
+            ServerProtocol.DIALOG_PARAM_RESPONSE_TYPE,
+            ServerProtocol.DIALOG_RESPONSE_TYPE_TOKEN_AND_SIGNED_REQUEST);
+      }
+    }
     parameters.putString(
         ServerProtocol.DIALOG_PARAM_RETURN_SCOPES, ServerProtocol.DIALOG_RETURN_SCOPES_TRUE);
     parameters.putString(ServerProtocol.DIALOG_PARAM_AUTH_TYPE, request.getAuthType());
@@ -120,6 +147,24 @@ abstract class WebLoginMethodHandler extends LoginMethodHandler {
     parameters.putString(
         ServerProtocol.DIALOG_PARAM_CUSTOM_TABS_PREFETCHING,
         FacebookSdk.hasCustomTabsPrefetching ? "1" : "0");
+
+    if (request.isFamilyLogin()) {
+      parameters.putString(
+          ServerProtocol.DIALOG_PARAM_FX_APP, request.getLoginTargetApp().toString());
+    }
+
+    if (request.shouldSkipAccountDeduplication()) {
+      parameters.putString(ServerProtocol.DIALOG_PARAM_SKIP_DEDUPE, "true");
+    }
+
+    // Set Login Connect parameters if they are present
+    if (request.getMessengerPageId() != null) {
+      parameters.putString(
+          ServerProtocol.DIALOG_PARAM_MESSENGER_PAGE_ID, request.getMessengerPageId());
+      parameters.putString(
+          ServerProtocol.DIALOG_PARAM_RESET_MESSENGER_STATE,
+          request.getResetMessengerState() ? "1" : "0");
+    }
 
     return parameters;
   }
@@ -137,7 +182,11 @@ abstract class WebLoginMethodHandler extends LoginMethodHandler {
         AccessToken token =
             createAccessTokenFromWebBundle(
                 request.getPermissions(), values, getTokenSource(), request.getApplicationId());
-        outcome = LoginClient.Result.createTokenResult(loginClient.getPendingRequest(), token);
+        AuthenticationToken authenticationToken =
+            createAuthenticationTokenFromWebBundle(values, request.getNonce());
+        outcome =
+            LoginClient.Result.createCompositeTokenResult(
+                loginClient.getPendingRequest(), token, authenticationToken);
 
         // Ensure any cookies set by the dialog are saved
         // This is to work around a bug where CookieManager may fail to instantiate if

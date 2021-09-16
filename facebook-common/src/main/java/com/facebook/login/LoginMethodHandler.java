@@ -26,13 +26,17 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Base64;
 import android.util.Log;
+import androidx.annotation.Nullable;
 import com.facebook.AccessToken;
 import com.facebook.AccessTokenSource;
+import com.facebook.AuthenticationToken;
 import com.facebook.FacebookException;
 import com.facebook.appevents.InternalAppEventsLogger;
 import com.facebook.internal.AnalyticsEvents;
 import com.facebook.internal.NativeProtocol;
 import com.facebook.internal.Utility;
+import com.facebook.internal.qualityvalidation.Excuse;
+import com.facebook.internal.qualityvalidation.ExcusesForDesignViolations;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +48,7 @@ import java.util.Map;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+@ExcusesForDesignViolations(@Excuse(type = "MISSING_UNIT_TEST", reason = "Legacy"))
 abstract class LoginMethodHandler implements Parcelable {
   Map<String, String> methodLoggingExtras;
   protected LoginClient loginClient;
@@ -113,6 +118,23 @@ abstract class LoginMethodHandler implements Parcelable {
     logger.logEventImplicitly(AnalyticsEvents.EVENT_WEB_LOGIN_COMPLETE, null, parameters);
   }
 
+  @Nullable
+  static AuthenticationToken createAuthenticationTokenFromNativeLogin(
+      Bundle bundle, String expectedNonce) throws FacebookException {
+    String authenticationTokenString = bundle.getString(NativeProtocol.EXTRA_AUTHENTICATION_TOKEN);
+
+    if (Utility.isNullOrEmpty(authenticationTokenString)) {
+      return null;
+    }
+
+    try {
+      return new AuthenticationToken(authenticationTokenString, expectedNonce);
+    } catch (Exception _ex) {
+      // any exception happens we need to bubble that to FacebookException
+      throw new FacebookException(_ex.getMessage());
+    }
+  }
+
   static AccessToken createAccessTokenFromNativeLogin(
       Bundle bundle, AccessTokenSource source, String applicationId) {
     Date expires =
@@ -142,6 +164,36 @@ abstract class LoginMethodHandler implements Parcelable {
         new Date(),
         dataAccessExpirationTime,
         graphDomain);
+  }
+
+  /**
+   * WARNING: This feature is currently in development and not intended for external usage.
+   *
+   * @param bundle
+   * @param expectedNonce the nonce expected to have created with the AuthenticationToken
+   * @return AuthenticationToken
+   * @throws FacebookException
+   */
+  @Nullable
+  public static AuthenticationToken createAuthenticationTokenFromWebBundle(
+      Bundle bundle, String expectedNonce) throws FacebookException {
+    String authenticationTokenString =
+        bundle.getString(AuthenticationToken.AUTHENTICATION_TOKEN_KEY);
+
+    if (Utility.isNullOrEmpty(authenticationTokenString)) {
+      return null;
+    }
+
+    try {
+      /**
+       * TODO T96881697: create factory class for authentication token, remove this try-catch and
+       * replace AuthenticationToken with factory method
+       */
+      return new AuthenticationToken(authenticationTokenString, expectedNonce);
+    } catch (Exception ex) {
+      // will remove this after factory class created
+      return null;
+    }
   }
 
   public static AccessToken createAccessTokenFromWebBundle(
@@ -177,7 +229,7 @@ abstract class LoginMethodHandler implements Parcelable {
       return null;
     }
 
-    String graphDomain = bundle.getString("graph_domain");
+    String graphDomain = bundle.getString(AccessToken.GRAPH_DOMAIN);
     String signed_request = bundle.getString("signed_request");
     String userId = getUserIDFromSignedRequest(signed_request);
 

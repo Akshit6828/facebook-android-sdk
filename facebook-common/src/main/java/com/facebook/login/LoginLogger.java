@@ -27,6 +27,8 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import com.facebook.appevents.InternalAppEventsLogger;
 import com.facebook.internal.instrument.crashshield.AutoHandleExceptions;
+import com.facebook.internal.qualityvalidation.Excuse;
+import com.facebook.internal.qualityvalidation.ExcusesForDesignViolations;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -35,6 +37,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 @AutoHandleExceptions
+@ExcusesForDesignViolations(@Excuse(type = "MISSING_UNIT_TEST", reason = "Legacy"))
 class LoginLogger {
   // Constants for logging login-related data.
   static final String EVENT_NAME_LOGIN_METHOD_START = "fb_mobile_login_method_start";
@@ -46,6 +49,13 @@ class LoginLogger {
   static final String EVENT_NAME_LOGIN_STATUS_START = "fb_mobile_login_status_start";
   static final String EVENT_NAME_LOGIN_STATUS_COMPLETE = "fb_mobile_login_status_complete";
   static final String EVENT_NAME_LOGIN_HEARTBEAT = "fb_mobile_login_heartbeat";
+
+  static final String EVENT_NAME_FOA_LOGIN_METHOD_START = "foa_mobile_login_method_start";
+  static final String EVENT_NAME_FOA_LOGIN_METHOD_COMPLETE = "foa_mobile_login_method_complete";
+  static final String EVENT_NAME_FOA_LOGIN_METHOD_NOT_TRIED = "foa_mobile_login_method_not_tried";
+  static final String EVENT_PARAM_FOA_METHOD_RESULT_SKIPPED = "foa_skipped";
+  static final String EVENT_NAME_FOA_LOGIN_START = "foa_mobile_login_start";
+  static final String EVENT_NAME_FOA_LOGIN_COMPLETE = "foa_mobile_login_complete";
   // Note: to ensure stability of column mappings across the four different event types, we
   // prepend a column index to each name, and we log all columns with all events, even if they are
   // empty.
@@ -68,6 +78,7 @@ class LoginLogger {
   static final String EVENT_EXTRAS_IS_REAUTHORIZE = "isReauthorize";
   static final String EVENT_EXTRAS_FACEBOOK_VERSION = "facebookVersion";
   static final String EVENT_EXTRAS_FAILURE = "failure";
+  static final String EVENT_EXTRAS_TARGET_APP = "target_app";
 
   static final String FACEBOOK_PACKAGE_NAME = "com.facebook.katana";
 
@@ -116,6 +127,10 @@ class LoginLogger {
   }
 
   public void logStartLogin(LoginClient.Request pendingLoginRequest) {
+    logStartLogin(pendingLoginRequest, EVENT_NAME_LOGIN_START);
+  }
+
+  public void logStartLogin(LoginClient.Request pendingLoginRequest, String eventName) {
     Bundle bundle = newAuthorizationLoggingBundle(pendingLoginRequest.getAuthId());
 
     // Log what we already know about the call in start event
@@ -131,11 +146,14 @@ class LoginLogger {
       if (facebookVersion != null) {
         extras.put(EVENT_EXTRAS_FACEBOOK_VERSION, facebookVersion);
       }
+      if (pendingLoginRequest.getLoginTargetApp() != null) {
+        extras.put(EVENT_EXTRAS_TARGET_APP, pendingLoginRequest.getLoginTargetApp().toString());
+      }
       bundle.putString(EVENT_PARAM_EXTRAS, extras.toString());
     } catch (JSONException e) {
     }
 
-    logger.logEventImplicitly(EVENT_NAME_LOGIN_START, null, bundle);
+    logger.logEventImplicitly(eventName, null, bundle);
   }
 
   public void logCompleteLogin(
@@ -144,6 +162,17 @@ class LoginLogger {
       LoginClient.Result.Code result,
       Map<String, String> resultExtras,
       Exception exception) {
+    logCompleteLogin(
+        loginRequestId, loggingExtras, result, resultExtras, exception, EVENT_NAME_LOGIN_COMPLETE);
+  }
+
+  public void logCompleteLogin(
+      String loginRequestId,
+      Map<String, String> loggingExtras,
+      LoginClient.Result.Code result,
+      Map<String, String> resultExtras,
+      Exception exception,
+      String eventName) {
 
     Bundle bundle = newAuthorizationLoggingBundle(loginRequestId);
     if (result != null) {
@@ -173,7 +202,7 @@ class LoginLogger {
       bundle.putString(EVENT_PARAM_EXTRAS, jsonObject.toString());
     }
 
-    logger.logEventImplicitly(EVENT_NAME_LOGIN_COMPLETE, bundle);
+    logger.logEventImplicitly(eventName, bundle);
     if (result == LoginClient.Result.Code.SUCCESS) {
       logHeartbeatEvent(loginRequestId);
     }
@@ -191,10 +220,14 @@ class LoginLogger {
   }
 
   public void logAuthorizationMethodStart(String authId, String method) {
+    logAuthorizationMethodStart(authId, method, EVENT_NAME_LOGIN_METHOD_START);
+  }
+
+  public void logAuthorizationMethodStart(String authId, String method, String eventName) {
     Bundle bundle = LoginLogger.newAuthorizationLoggingBundle(authId);
     bundle.putString(EVENT_PARAM_METHOD, method);
 
-    logger.logEventImplicitly(EVENT_NAME_LOGIN_METHOD_START, bundle);
+    logger.logEventImplicitly(eventName, bundle);
   }
 
   public void logAuthorizationMethodComplete(
@@ -204,6 +237,24 @@ class LoginLogger {
       String errorMessage,
       String errorCode,
       Map<String, String> loggingExtras) {
+    logAuthorizationMethodComplete(
+        authId,
+        method,
+        result,
+        errorMessage,
+        errorCode,
+        loggingExtras,
+        EVENT_NAME_LOGIN_METHOD_COMPLETE);
+  }
+
+  public void logAuthorizationMethodComplete(
+      String authId,
+      String method,
+      String result,
+      String errorMessage,
+      String errorCode,
+      Map<String, String> loggingExtras,
+      String eventName) {
 
     Bundle bundle;
     bundle = LoginLogger.newAuthorizationLoggingBundle(authId);
@@ -222,14 +273,18 @@ class LoginLogger {
     }
     bundle.putString(EVENT_PARAM_METHOD, method);
 
-    logger.logEventImplicitly(EVENT_NAME_LOGIN_METHOD_COMPLETE, bundle);
+    logger.logEventImplicitly(eventName, bundle);
   }
 
   public void logAuthorizationMethodNotTried(String authId, String method) {
+    logAuthorizationMethodNotTried(authId, method, EVENT_NAME_LOGIN_METHOD_NOT_TRIED);
+  }
+
+  public void logAuthorizationMethodNotTried(String authId, String method, String eventName) {
     Bundle bundle = LoginLogger.newAuthorizationLoggingBundle(authId);
     bundle.putString(EVENT_PARAM_METHOD, method);
 
-    logger.logEventImplicitly(EVENT_NAME_LOGIN_METHOD_NOT_TRIED, bundle);
+    logger.logEventImplicitly(eventName, bundle);
   }
 
   public void logLoginStatusStart(final String loggerRef) {

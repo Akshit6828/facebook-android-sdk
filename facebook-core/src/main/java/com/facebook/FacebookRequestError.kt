@@ -26,6 +26,8 @@ import com.facebook.internal.FacebookRequestErrorClassification
 import com.facebook.internal.FacebookRequestErrorClassification.Companion.defaultErrorClassification
 import com.facebook.internal.FetchedAppSettingsManager.getAppSettingsWithoutQuery
 import com.facebook.internal.Utility.getStringPropertyAsJSON
+import com.facebook.internal.qualityvalidation.Excuse
+import com.facebook.internal.qualityvalidation.ExcusesForDesignViolations
 import java.net.HttpURLConnection
 import org.json.JSONException
 import org.json.JSONObject
@@ -38,6 +40,7 @@ import org.json.JSONObject
  * [
  * https://developers.facebook.com/docs/reference/api/errors/](https://developers.facebook.com/docs/reference/api/errors/)
  */
+@ExcusesForDesignViolations(Excuse(type = "KOTLIN_JVM_FIELD", reason = "Legacy migration"))
 class FacebookRequestError
 private constructor(
     /**
@@ -280,8 +283,15 @@ private constructor(
     private const val ERROR_USER_TITLE_KEY = "error_user_title"
     private const val ERROR_USER_MSG_KEY = "error_user_msg"
     private const val ERROR_IS_TRANSIENT_KEY = "is_transient"
-    val HTTP_RANGE_SUCCESS = Range(200, 299)
+    internal val HTTP_RANGE_SUCCESS = Range(200, 299)
 
+    /**
+     * Check Response and create error if necessary
+     *
+     * @param singleResult jsonObject result
+     * @param batchResult bach call result
+     * @param connection
+     */
     @JvmStatic
     fun checkResponseAndCreateError(
         singleResult: JSONObject,
@@ -385,6 +395,7 @@ private constructor(
                 ?: return defaultErrorClassification
         return appSettings.errorClassification
       }
+
     @JvmField
     val CREATOR: Parcelable.Creator<FacebookRequestError> =
         object : Parcelable.Creator<FacebookRequestError> {

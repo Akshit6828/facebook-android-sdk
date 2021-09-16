@@ -27,10 +27,12 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
 import android.os.Bundle;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.browser.customtabs.CustomTabsClient;
 import androidx.fragment.app.Fragment;
 import com.facebook.AccessToken;
+import com.facebook.AuthenticationToken;
 import com.facebook.CallbackManager;
 import com.facebook.FacebookActivity;
 import com.facebook.FacebookAuthorizationException;
@@ -74,6 +76,9 @@ public class LoginManager {
   private String authType = ServerProtocol.DIALOG_REREQUEST_AUTH_TYPE;
   @Nullable private String messengerPageId;
   private boolean resetMessengerState;
+  private LoginTargetApp targetApp = LoginTargetApp.FACEBOOK;
+  private boolean isFamilyLogin = false;
+  private boolean shouldSkipAccountDeduplication = false;
 
   LoginManager() {
     Validate.sdkInitialized();
@@ -205,7 +210,8 @@ public class LoginManager {
 
   boolean onActivityResult(int resultCode, Intent data, FacebookCallback<LoginResult> callback) {
     FacebookException exception = null;
-    AccessToken newToken = null;
+    AccessToken accessToken = null;
+    AuthenticationToken authenticationToken = null;
     LoginClient.Result.Code code = LoginClient.Result.Code.ERROR;
     Map<String, String> loggingExtras = null;
     LoginClient.Request originalRequest = null;
@@ -218,7 +224,8 @@ public class LoginManager {
         code = result.code;
         if (resultCode == Activity.RESULT_OK) {
           if (result.code == LoginClient.Result.Code.SUCCESS) {
-            newToken = result.token;
+            accessToken = result.token;
+            authenticationToken = result.authenticationToken;
           } else {
             exception = new FacebookAuthorizationException(result.errorMessage);
           }
@@ -232,7 +239,7 @@ public class LoginManager {
       code = LoginClient.Result.Code.CANCEL;
     }
 
-    if (exception == null && newToken == null && !isCanceled) {
+    if (exception == null && accessToken == null && !isCanceled) {
       exception = new FacebookException("Unexpected call to LoginManager.onActivityResult");
     }
 
@@ -241,7 +248,7 @@ public class LoginManager {
     logCompleteLogin(
         context, code, loggingExtras, exception, wasLoginActivityTried, originalRequest);
 
-    finishLogin(newToken, originalRequest, exception, isCanceled, callback);
+    finishLogin(accessToken, authenticationToken, originalRequest, exception, isCanceled, callback);
 
     return true;
   }
@@ -274,6 +281,26 @@ public class LoginManager {
    */
   public LoginManager setLoginBehavior(LoginBehavior loginBehavior) {
     this.loginBehavior = loginBehavior;
+    return this;
+  }
+
+  /**
+   * Getter for the login target app.
+   *
+   * @return the login target app.
+   */
+  public LoginTargetApp getLoginTargetApp() {
+    return targetApp;
+  }
+
+  /**
+   * Setter for the login target app.
+   *
+   * @param targetApp The login target app.
+   * @return The login manager.
+   */
+  public LoginManager setLoginTargetApp(LoginTargetApp targetApp) {
+    this.targetApp = targetApp;
     return this;
   }
 
@@ -336,6 +363,46 @@ public class LoginManager {
    */
   public LoginManager setResetMessengerState(final boolean resetMessengerState) {
     this.resetMessengerState = resetMessengerState;
+    return this;
+  }
+
+  /**
+   * Determines whether we are using the cross Family of Apps login experience
+   *
+   * @return True if using cross Family of Apps login
+   */
+  public boolean isFamilyLogin() {
+    return isFamilyLogin;
+  }
+
+  /**
+   * Setter for whether we are using cross Family of Apps login
+   *
+   * @param isFamilyLogin Whether we are using cross Family of Apps login
+   * @return The login manager.
+   */
+  public LoginManager setFamilyLogin(boolean isFamilyLogin) {
+    this.isFamilyLogin = isFamilyLogin;
+    return this;
+  }
+
+  /**
+   * Determines if we should skip deduplicating account during x-FoA login.
+   *
+   * @return True if Account deduplication is opted out in Family of Apps login
+   */
+  public boolean getShouldSkipAccountDeduplication() {
+    return shouldSkipAccountDeduplication;
+  }
+  /**
+   * Setter for whether we are skipping deduplicating account during x-FoA login.
+   *
+   * @param shouldSkipAccountDeduplication Whether we want to opt out account deduplication
+   *     experience in Family of Apps login
+   * @return The login manager.
+   */
+  public LoginManager setShouldSkipAccountDeduplication(boolean shouldSkipAccountDeduplication) {
+    this.shouldSkipAccountDeduplication = shouldSkipAccountDeduplication;
     return this;
   }
 
@@ -407,7 +474,8 @@ public class LoginManager {
   private void logInWithReadPermissions(FragmentWrapper fragment, Collection<String> permissions) {
     validateReadPermissions(permissions);
 
-    logIn(fragment, permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    logIn(fragment, loginConfig);
   }
 
   /**
@@ -419,7 +487,39 @@ public class LoginManager {
   public void logInWithReadPermissions(Activity activity, Collection<String> permissions) {
     validateReadPermissions(permissions);
 
-    logIn(activity, permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    logIn(activity, loginConfig);
+  }
+
+  /**
+   * Logs the user in with the requested configuration.
+   *
+   * @param fragment The android.support.v4.app.Fragment which is starting the login process.
+   * @param loginConfig The login configuration
+   */
+  public void logInWithConfiguration(Fragment fragment, @NonNull LoginConfiguration loginConfig) {
+    loginWithConfiguration(new FragmentWrapper(fragment), loginConfig);
+  }
+
+  /**
+   * Logs the user in with the requested configuration.
+   *
+   * @param fragment The fragment which is starting the login process.
+   * @param loginConfig The login configuration.
+   */
+  private void loginWithConfiguration(
+      FragmentWrapper fragment, @NonNull LoginConfiguration loginConfig) {
+    logIn(fragment, loginConfig);
+  }
+
+  /**
+   * Logs the user in with the requested configuration.
+   *
+   * @param activity The activity which is starting the login process.
+   * @param loginConfig The login configuration
+   */
+  public void loginWithConfiguration(Activity activity, @NonNull LoginConfiguration loginConfig) {
+    logIn(activity, loginConfig);
   }
 
   /**
@@ -482,7 +582,8 @@ public class LoginManager {
       FragmentWrapper fragment, Collection<String> permissions) {
     validatePublishPermissions(permissions);
 
-    logIn(fragment, permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    loginWithConfiguration(fragment, loginConfig);
   }
 
   /**
@@ -494,7 +595,8 @@ public class LoginManager {
   public void logInWithPublishPermissions(Activity activity, Collection<String> permissions) {
     validatePublishPermissions(permissions);
 
-    logIn(activity, permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    loginWithConfiguration(activity, loginConfig);
   }
 
   /**
@@ -510,6 +612,17 @@ public class LoginManager {
   /**
    * Logs the user in with the requested permissions.
    *
+   * @param fragment The android.support.v4.app.Fragment which is starting the login process.
+   * @param permissions The requested permissions.
+   * @param loggerID Override the default logger ID for the request
+   */
+  public void logIn(Fragment fragment, Collection<String> permissions, String loggerID) {
+    logIn(new FragmentWrapper(fragment), permissions, loggerID);
+  }
+
+  /**
+   * Logs the user in with the requested permissions.
+   *
    * @param fragment The android.app.Fragment which is starting the login process.
    * @param permissions The requested permissions.
    */
@@ -520,11 +633,35 @@ public class LoginManager {
   /**
    * Logs the user in with the requested permissions.
    *
+   * @param fragment The android.app.Fragment which is starting the login process.
+   * @param permissions The requested permissions.
+   * @param loggerID Override the default logger ID for the request
+   */
+  public void logIn(
+      android.app.Fragment fragment, Collection<String> permissions, String loggerID) {
+    logIn(new FragmentWrapper(fragment), permissions, loggerID);
+  }
+
+  /**
+   * Logs the user in with the requested permissions.
+   *
    * @param fragment The fragment which is starting the login process.
    * @param permissions The requested permissions.
    */
   public void logIn(FragmentWrapper fragment, Collection<String> permissions) {
-    LoginClient.Request loginRequest = createLoginRequest(permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    logIn(fragment, loginConfig);
+  }
+
+  /**
+   * Logs the user in with the requested permissions.
+   *
+   * @param fragment The fragment which is starting the login process.
+   * @param permissions The requested permissions.
+   * @param loggerID Override the default logger ID for the request
+   */
+  public void logIn(FragmentWrapper fragment, Collection<String> permissions, String loggerID) {
+    LoginClient.Request loginRequest = createLoginRequest(permissions, loggerID);
     startLogin(new FragmentStartActivityDelegate(fragment), loginRequest);
   }
 
@@ -535,7 +672,41 @@ public class LoginManager {
    * @param permissions The requested permissions.
    */
   public void logIn(Activity activity, Collection<String> permissions) {
-    LoginClient.Request loginRequest = createLoginRequest(permissions);
+    LoginConfiguration loginConfig = new LoginConfiguration(permissions);
+    logIn(activity, loginConfig);
+  }
+
+  /**
+   * Logs the user in with the requested login configuration.
+   *
+   * @param fragment The fragment which is starting the login process.
+   * @param loginConfig The login config of the request
+   */
+  public void logIn(FragmentWrapper fragment, @NonNull LoginConfiguration loginConfig) {
+    LoginClient.Request loginRequest = createLoginRequestWithConfig(loginConfig);
+    startLogin(new FragmentStartActivityDelegate(fragment), loginRequest);
+  }
+
+  /**
+   * Logs the user in with the requested configuration.
+   *
+   * @param activity The activity which is starting the login process.
+   * @param loginConfig The login config of the request
+   */
+  public void logIn(Activity activity, @NonNull LoginConfiguration loginConfig) {
+    LoginClient.Request loginRequest = createLoginRequestWithConfig(loginConfig);
+    startLogin(new ActivityStartActivityDelegate(activity), loginRequest);
+  }
+
+  /**
+   * Logs the user in with the requested permissions.
+   *
+   * @param activity The activity which is starting the login process.
+   * @param permissions The requested permissions.
+   * @param loggerID Override the default logger ID for the request
+   */
+  public void logIn(Activity activity, Collection<String> permissions, String loggerID) {
+    LoginClient.Request loginRequest = createLoginRequest(permissions, loggerID);
     startLogin(new ActivityStartActivityDelegate(activity), loginRequest);
   }
 
@@ -587,6 +758,28 @@ public class LoginManager {
     return Collections.unmodifiableSet(set);
   }
 
+  protected LoginClient.Request createLoginRequestWithConfig(LoginConfiguration loginConfig) {
+    LoginClient.Request request =
+        new LoginClient.Request(
+            loginBehavior,
+            Collections.unmodifiableSet(
+                loginConfig.getPermissions() != null
+                    ? new HashSet(loginConfig.getPermissions())
+                    : new HashSet<String>()),
+            defaultAudience,
+            authType,
+            FacebookSdk.getApplicationId(),
+            UUID.randomUUID().toString(),
+            targetApp,
+            loginConfig.getNonce());
+    request.setRerequest(AccessToken.isCurrentAccessTokenActive());
+    request.setMessengerPageId(messengerPageId);
+    request.setResetMessengerState(resetMessengerState);
+    request.setFamilyLogin(isFamilyLogin);
+    request.setShouldSkipAccountDeduplication(shouldSkipAccountDeduplication);
+    return request;
+  }
+
   protected LoginClient.Request createLoginRequest(Collection<String> permissions) {
     LoginClient.Request request =
         new LoginClient.Request(
@@ -596,21 +789,49 @@ public class LoginManager {
             defaultAudience,
             authType,
             FacebookSdk.getApplicationId(),
-            UUID.randomUUID().toString());
+            UUID.randomUUID().toString(),
+            targetApp);
     request.setRerequest(AccessToken.isCurrentAccessTokenActive());
     request.setMessengerPageId(messengerPageId);
     request.setResetMessengerState(resetMessengerState);
+    request.setFamilyLogin(isFamilyLogin);
+    request.setShouldSkipAccountDeduplication(shouldSkipAccountDeduplication);
+    return request;
+  }
+
+  protected LoginClient.Request createLoginRequest(
+      Collection<String> permissions, String loggerID) {
+    LoginClient.Request request =
+        new LoginClient.Request(
+            loginBehavior,
+            Collections.unmodifiableSet(
+                permissions != null ? new HashSet(permissions) : new HashSet<String>()),
+            defaultAudience,
+            authType,
+            FacebookSdk.getApplicationId(),
+            loggerID,
+            targetApp);
+    request.setRerequest(AccessToken.isCurrentAccessTokenActive());
+    request.setMessengerPageId(messengerPageId);
+    request.setResetMessengerState(resetMessengerState);
+    request.setFamilyLogin(isFamilyLogin);
+    request.setShouldSkipAccountDeduplication(shouldSkipAccountDeduplication);
     return request;
   }
 
   protected LoginClient.Request createReauthorizeRequest() {
-    return new LoginClient.Request(
-        LoginBehavior.DIALOG_ONLY,
-        new HashSet<String>(),
-        defaultAudience,
-        "reauthorize",
-        FacebookSdk.getApplicationId(),
-        UUID.randomUUID().toString());
+    LoginClient.Request request =
+        new LoginClient.Request(
+            LoginBehavior.DIALOG_ONLY,
+            new HashSet<String>(),
+            defaultAudience,
+            "reauthorize",
+            FacebookSdk.getApplicationId(),
+            UUID.randomUUID().toString(),
+            targetApp);
+    request.setFamilyLogin(isFamilyLogin);
+    request.setShouldSkipAccountDeduplication(shouldSkipAccountDeduplication);
+    return request;
   }
 
   private void startLogin(StartActivityDelegate startActivityDelegate, LoginClient.Request request)
@@ -650,7 +871,11 @@ public class LoginManager {
   private void logStartLogin(Context context, LoginClient.Request loginRequest) {
     LoginLogger loginLogger = LoginLoggerHolder.getLogger(context);
     if (loginLogger != null && loginRequest != null) {
-      loginLogger.logStartLogin(loginRequest);
+      loginLogger.logStartLogin(
+          loginRequest,
+          loginRequest.isFamilyLogin()
+              ? LoginLogger.EVENT_NAME_FOA_LOGIN_START
+              : LoginLogger.EVENT_NAME_LOGIN_START);
     }
   }
 
@@ -678,7 +903,14 @@ public class LoginManager {
               ? AppEventsConstants.EVENT_PARAM_VALUE_YES
               : AppEventsConstants.EVENT_PARAM_VALUE_NO);
       loginLogger.logCompleteLogin(
-          request.getAuthId(), pendingLoggingExtras, result, resultExtras, exception);
+          request.getAuthId(),
+          pendingLoggingExtras,
+          result,
+          resultExtras,
+          exception,
+          request.isFamilyLogin()
+              ? LoginLogger.EVENT_NAME_FOA_LOGIN_COMPLETE
+              : LoginLogger.EVENT_NAME_LOGIN_COMPLETE);
     }
   }
 
@@ -720,7 +952,9 @@ public class LoginManager {
   }
 
   static LoginResult computeLoginResult(
-      final LoginClient.Request request, final AccessToken newToken) {
+      final LoginClient.Request request,
+      final AccessToken newToken,
+      @Nullable final AuthenticationToken newIdToken) {
     Set<String> requestedPermissions = request.getPermissions();
     Set<String> grantedPermissions = new HashSet<String>(newToken.getPermissions());
 
@@ -732,11 +966,12 @@ public class LoginManager {
 
     Set<String> deniedPermissions = new HashSet<String>(requestedPermissions);
     deniedPermissions.removeAll(grantedPermissions);
-    return new LoginResult(newToken, grantedPermissions, deniedPermissions);
+    return new LoginResult(newToken, newIdToken, grantedPermissions, deniedPermissions);
   }
 
   private void finishLogin(
       AccessToken newToken,
+      @Nullable AuthenticationToken newIdToken,
       LoginClient.Request origRequest,
       FacebookException exception,
       boolean isCanceled,
@@ -747,7 +982,8 @@ public class LoginManager {
     }
 
     if (callback != null) {
-      LoginResult loginResult = newToken != null ? computeLoginResult(origRequest, newToken) : null;
+      LoginResult loginResult =
+          newToken != null ? computeLoginResult(origRequest, newToken, newIdToken) : null;
       // If there are no granted permissions, the operation is treated as cancel.
       if (isCanceled
           || (loginResult != null && loginResult.getRecentlyGrantedPermissions().size() == 0)) {
@@ -778,7 +1014,12 @@ public class LoginManager {
 
     final LoginStatusClient client =
         new LoginStatusClient(
-            context, applicationId, loggerRef, FacebookSdk.getGraphApiVersion(), toastDurationMs);
+            context,
+            applicationId,
+            loggerRef,
+            FacebookSdk.getGraphApiVersion(),
+            toastDurationMs,
+            null); // TODO T99739388: replace null with actual nonce
 
     final LoginStatusClient.CompletedListener callback =
         new LoginStatusClient.CompletedListener() {

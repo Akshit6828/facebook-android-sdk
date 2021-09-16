@@ -48,6 +48,26 @@ internal constructor(
   private val tokenRefreshInProgress = AtomicBoolean(false)
   private var lastAttemptedTokenExtendDate = Date(0)
 
+  interface RefreshTokenInfo {
+    val graphPath: String
+    val grantType: String
+  }
+
+  class FacebookRefreshTokenInfo : RefreshTokenInfo {
+    override val graphPath: String = "oauth/access_token"
+    override val grantType: String = "fb_extend_sso_token"
+  }
+
+  class InstagramRefreshTokenInfo : RefreshTokenInfo {
+    override val graphPath: String = "refresh_access_token"
+    override val grantType: String = "ig_refresh_token"
+  }
+
+  /**
+   * Load access token from accessTokenCache and set to currentAccessToken
+   *
+   * @return if load access token success
+   */
   fun loadCurrentAccessToken(): Boolean {
     val accessToken = accessTokenCache.load()
     if (accessToken != null) {
@@ -57,6 +77,10 @@ internal constructor(
     return false
   }
 
+  /**
+   * Build intent from currentAccessToken and broadcast the intent to
+   * CurrentAccessTokenExpirationBroadcastReceiver.
+   */
   fun currentAccessTokenChanged() {
     sendCurrentAccessTokenChangedBroadcastIntent(currentAccessToken, currentAccessToken)
   }
@@ -103,7 +127,12 @@ internal constructor(
     }
     val intent = Intent(context, CurrentAccessTokenExpirationBroadcastReceiver::class.java)
     intent.action = ACTION_CURRENT_ACCESS_TOKEN_CHANGED
-    val alarmIntent = PendingIntent.getBroadcast(context, 0, intent, 0)
+    val alarmIntent =
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+          PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        } else {
+          PendingIntent.getBroadcast(context, 0, intent, 0)
+        }
     try {
       alarmManager[AlarmManager.RTC, accessToken.expires.time] = alarmIntent
     } catch (e: Exception) {
@@ -111,6 +140,7 @@ internal constructor(
     }
   }
 
+  /** Refresh currentAccessToken if needed. */
   fun extendAccessTokenIfNeeded() {
     if (!shouldExtendAccessToken()) {
       return
@@ -129,10 +159,16 @@ internal constructor(
   private class RefreshResult {
     var accessToken: String? = null
     var expiresAt = 0
+    var expiresIn = 0
     var dataAccessExpirationTime: Long? = null
     var graphDomain: String? = null
   }
 
+  /**
+   * Refresh currentAccessToken.
+   *
+   * @param callback to be called after access token be refreshed.
+   */
   fun refreshCurrentAccessToken(callback: AccessToken.AccessTokenRefreshCallback?) {
     if (Looper.getMainLooper() == Looper.myLooper()) {
       refreshCurrentAccessTokenImpl(callback)
@@ -187,6 +223,7 @@ internal constructor(
                   val data = response.jsonObject ?: return@Callback
                   refreshResult.accessToken = data.optString("access_token")
                   refreshResult.expiresAt = data.optInt("expires_at")
+                  refreshResult.expiresIn = data.optInt("expires_in")
                   refreshResult.dataAccessExpirationTime =
                       data.optLong("data_access_expiration_time")
                   refreshResult.graphDomain = data.optString("graph_domain", null)
@@ -212,6 +249,13 @@ internal constructor(
               callback?.OnTokenRefreshFailed(FacebookException("Failed to refresh access token"))
               return@Callback
             }
+            var expirationTime = accessToken.expires
+            if (refreshResult.expiresAt != 0) {
+              expirationTime = Date(refreshResult.expiresAt * 1000L)
+            } else if (refreshResult.expiresIn != 0) {
+              val now = Date().time
+              expirationTime = Date(refreshResult.expiresIn * 1000L + now)
+            }
             newAccessToken =
                 AccessToken(
                     returnAccessToken ?: accessToken.token,
@@ -223,13 +267,12 @@ internal constructor(
                     if (permissionsCallSucceeded.get()) expiredPermissions
                     else accessToken.expiredPermissions,
                     accessToken.source,
-                    if (refreshResult.expiresAt != 0) Date(refreshResult.expiresAt * 1000L)
-                    else accessToken.expires,
+                    expirationTime,
                     Date(),
                     if (returnDataAccessExpirationTime != null) {
                       Date(returnDataAccessExpirationTime * 1000L)
                     } else accessToken.dataAccessExpirationTime,
-                    returnGraphDomain)
+                    returnGraphDomain ?: accessToken.graphDomain)
             getInstance().currentAccessToken = newAccessToken
           } finally {
             tokenRefreshInProgress.set(false)
@@ -252,7 +295,6 @@ internal constructor(
     // Token extension constants
     private const val TOKEN_EXTEND_THRESHOLD_SECONDS = 24 * 60 * 60 // 1 day
     private const val TOKEN_EXTEND_RETRY_SECONDS = 60 * 60 // 1 hour
-    private const val TOKEN_EXTEND_GRAPH_PATH = "oauth/access_token"
     private const val ME_PERMISSIONS_GRAPH_PATH = "me/permissions"
 
     private var instanceField: AccessTokenManager? = null
@@ -288,15 +330,23 @@ internal constructor(
           accessToken, ME_PERMISSIONS_GRAPH_PATH, parameters, HttpMethod.GET, callback)
     }
 
+    private fun getRefreshTokenInfoForToken(accessToken: AccessToken): RefreshTokenInfo {
+      val tokenGraphDomain = accessToken.graphDomain ?: AccessToken.DEFAULT_GRAPH_DOMAIN
+      return when (tokenGraphDomain) {
+        FacebookSdk.INSTAGRAM -> InstagramRefreshTokenInfo()
+        else -> FacebookRefreshTokenInfo()
+      }
+    }
+
     private fun createExtendAccessTokenRequest(
         accessToken: AccessToken,
         callback: GraphRequest.Callback
     ): GraphRequest {
+      val refreshInfo = getRefreshTokenInfoForToken(accessToken)
       val parameters = Bundle()
-      parameters.putString("grant_type", "fb_extend_sso_token")
+      parameters.putString("grant_type", refreshInfo.grantType)
       parameters.putString("client_id", accessToken.applicationId)
-      return GraphRequest(
-          accessToken, TOKEN_EXTEND_GRAPH_PATH, parameters, HttpMethod.GET, callback)
+      return GraphRequest(accessToken, refreshInfo.graphPath, parameters, HttpMethod.GET, callback)
     }
   }
 }

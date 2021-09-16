@@ -23,35 +23,41 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.test.core.app.ApplicationProvider
 import com.facebook.internal.Utility
 import com.facebook.util.common.mockLocalBroadcastManager
 import com.nhaarman.mockitokotlin2.any
+import com.nhaarman.mockitokotlin2.eq
 import com.nhaarman.mockitokotlin2.isA
+import com.nhaarman.mockitokotlin2.isNull
 import com.nhaarman.mockitokotlin2.mock
 import com.nhaarman.mockitokotlin2.never
 import com.nhaarman.mockitokotlin2.times
 import com.nhaarman.mockitokotlin2.verify
+import com.nhaarman.mockitokotlin2.whenever
 import java.util.Date
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
+import org.mockito.ArgumentCaptor
 import org.powermock.api.mockito.PowerMockito
 import org.powermock.api.support.membermodification.MemberMatcher
 import org.powermock.api.support.membermodification.MemberModifier
 import org.powermock.core.classloader.annotations.PrepareForTest
 import org.powermock.reflect.Whitebox
 
-@PrepareForTest(FacebookSdk::class, AccessTokenCache::class, Utility::class)
+@PrepareForTest(
+    FacebookSdk::class, AccessTokenCache::class, AccessTokenManager::class, Utility::class)
 class AccessTokenManagerTest : FacebookPowerMockTestCase() {
   companion object {
     private const val TOKEN_STRING = "A token of my esteem"
     private const val USER_ID = "1000"
     private val PERMISSIONS = listOf("walk", "chew gum")
-    private val EXPIRES = Date(2025, 5, 3)
-    private val LAST_REFRESH = Date(2023, 8, 15)
-    private val DATA_ACCESS_EXPIRATION_TIME = Date(2025, 5, 3)
+    private val EXPIRES = Date(2_025, 5, 3)
+    private val LAST_REFRESH = Date(2_023, 8, 15)
+    private val DATA_ACCESS_EXPIRATION_TIME = Date(2_025, 5, 3)
     private const val APP_ID = "1234"
   }
   private lateinit var localBroadcastManager: LocalBroadcastManager
@@ -60,8 +66,8 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
   @Before
   fun before() {
     PowerMockito.mockStatic(FacebookSdk::class.java)
-    PowerMockito.`when`(FacebookSdk.isInitialized()).thenReturn(true)
-    PowerMockito.`when`(FacebookSdk.getApplicationContext())
+    whenever(FacebookSdk.isInitialized()).thenReturn(true)
+    whenever(FacebookSdk.getApplicationContext())
         .thenReturn(ApplicationProvider.getApplicationContext())
     MemberModifier.suppress(MemberMatcher.method(Utility::class.java, "clearFacebookCookies"))
     accessTokenCache = mock()
@@ -120,7 +126,7 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
   @Test
   fun testLoadReturnsTrueIfCachedToken() {
     val accessToken = createAccessToken()
-    PowerMockito.`when`(accessTokenCache.load()).thenReturn(accessToken)
+    whenever(accessTokenCache.load()).thenReturn(accessToken)
     val accessTokenManager = createAccessTokenManager()
     val result = accessTokenManager.loadCurrentAccessToken()
     Assert.assertTrue(result)
@@ -129,7 +135,7 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
   @Test
   fun testLoadSetsCurrentTokenIfCached() {
     val accessToken = createAccessToken()
-    PowerMockito.`when`(accessTokenCache.load()).thenReturn(accessToken)
+    whenever(accessTokenCache.load()).thenReturn(accessToken)
     val accessTokenManager = createAccessTokenManager()
     accessTokenManager.loadCurrentAccessToken()
     Assert.assertEquals(accessToken, accessTokenManager.currentAccessToken)
@@ -153,7 +159,7 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
   @Test
   fun testLoadDoesNotSave() {
     val accessToken = createAccessToken()
-    PowerMockito.`when`(accessTokenCache.load()).thenReturn(accessToken)
+    whenever(accessTokenCache.load()).thenReturn(accessToken)
     val accessTokenManager = createAccessTokenManager()
     accessTokenManager.loadCurrentAccessToken()
     verify(accessTokenCache, never()).save(any())
@@ -193,13 +199,100 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
     Assert.assertNotNull(capturedException)
   }
 
+  @Test
+  fun testExtendFBAccessToken() {
+    val accessToken = createAccessToken()
+    whenever(accessTokenCache.load()).thenReturn(accessToken)
+    val accessTokenManager = createAccessTokenManager()
+    accessTokenManager.loadCurrentAccessToken()
+
+    val mockGraphRequestCompanionObject = mock<GraphRequest.Companion>()
+    Whitebox.setInternalState(
+        GraphRequest::class.java, "Companion", mockGraphRequestCompanionObject)
+    PowerMockito.whenNew(GraphRequest::class.java)
+        .withAnyArguments()
+        .thenReturn(mock<GraphRequest>())
+    whenever(mockGraphRequestCompanionObject.executeBatchAsync(any<GraphRequestBatch>()))
+        .thenReturn(mock<GraphRequestAsyncTask>())
+    val bundleArgumentCaptor = ArgumentCaptor.forClass(Bundle::class.java)
+
+    accessTokenManager.refreshCurrentAccessToken(null)
+
+    PowerMockito.verifyNew(GraphRequest::class.java)
+        .withArguments(
+            eq(accessToken),
+            eq("me/permissions"),
+            any(),
+            eq(HttpMethod.GET),
+            any(),
+            isNull(),
+            any<Int>(),
+            isNull()) // @JvmOverloads adds extra arguments
+    PowerMockito.verifyNew(GraphRequest::class.java)
+        .withArguments(
+            eq(accessToken),
+            eq("oauth/access_token"),
+            bundleArgumentCaptor.capture(),
+            eq(HttpMethod.GET),
+            any(),
+            isNull(),
+            any<Int>(),
+            isNull()) // @JvmOverloads adds extra arguments
+    val parameters = bundleArgumentCaptor.getValue()
+    Assert.assertEquals("fb_extend_sso_token", parameters.getString("grant_type"))
+  }
+
+  @Test
+  fun testExtendIGAccessToken() {
+    val accessToken = createAccessToken(TOKEN_STRING, USER_ID, "instagram")
+    whenever(accessTokenCache.load()).thenReturn(accessToken)
+    val accessTokenManager = createAccessTokenManager()
+    accessTokenManager.loadCurrentAccessToken()
+
+    val mockGraphRequestCompanionObject = mock<GraphRequest.Companion>()
+    Whitebox.setInternalState(
+        GraphRequest::class.java, "Companion", mockGraphRequestCompanionObject)
+    PowerMockito.whenNew(GraphRequest::class.java)
+        .withAnyArguments()
+        .thenReturn(mock<GraphRequest>())
+    whenever(mockGraphRequestCompanionObject.executeBatchAsync(any<GraphRequestBatch>()))
+        .thenReturn(mock<GraphRequestAsyncTask>())
+    val bundleArgumentCaptor = ArgumentCaptor.forClass(Bundle::class.java)
+
+    accessTokenManager.refreshCurrentAccessToken(null)
+
+    PowerMockito.verifyNew(GraphRequest::class.java)
+        .withArguments(
+            eq(accessToken),
+            eq("me/permissions"),
+            any(),
+            eq(HttpMethod.GET),
+            any(),
+            isNull(),
+            any<Int>(),
+            isNull()) // @JvmOverloads adds extra arguments
+    PowerMockito.verifyNew(GraphRequest::class.java)
+        .withArguments(
+            eq(accessToken),
+            eq("refresh_access_token"),
+            bundleArgumentCaptor.capture(),
+            eq(HttpMethod.GET),
+            any(),
+            isNull(),
+            any<Int>(),
+            isNull()) // @JvmOverloads adds extra arguments
+    val parameters = bundleArgumentCaptor.getValue()
+    Assert.assertEquals("ig_refresh_token", parameters.getString("grant_type"))
+  }
+
   private fun createAccessTokenManager(): AccessTokenManager {
     return AccessTokenManager(localBroadcastManager, accessTokenCache)
   }
 
   private fun createAccessToken(
       tokenString: String = TOKEN_STRING,
-      userId: String = USER_ID
+      userId: String = USER_ID,
+      graphDomain: String = "facebook"
   ): AccessToken {
     return AccessToken(
         tokenString,
@@ -211,6 +304,7 @@ class AccessTokenManagerTest : FacebookPowerMockTestCase() {
         AccessTokenSource.WEB_VIEW,
         EXPIRES,
         LAST_REFRESH,
-        DATA_ACCESS_EXPIRATION_TIME)
+        DATA_ACCESS_EXPIRATION_TIME,
+        graphDomain)
   }
 }

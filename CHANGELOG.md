@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `com.facebook.bolts.AppLinkResolver` will only receive nonnull parameters and return nonnull values. `com.facebook.bolts.Capture` is removed.
+- Removed deprecated functions in `com.facebook.appevents.AppEventsLogger`
+- Removed deprecated function `ViewIndexer.sendToServerUnity(String)`
+
+## [11.3.0] - 2021-09-06
+
+### Added
+- Add Custom Updates for Cloud Games
+### Fixed
+- Fixed Login Connect support in CCT and Webview
+
+## [11.2.0] - 2021-08-02
+
+### Added
+- Access token and profile management for Instagram users, support for querying graph.instagram.com, and Instagram login dialogs. NOTE: These changes support a feature currently in alpha testing and not broadly available to developers.
+
+### Fixed
+- Fixed the crash when calling `AppEventsLoggerImpl.augmentWebView(WebView, Context)`.
+
+## [11.1.1] - 2021-07-16
+
+### Fixed
+- Fixed the bug in `GraphRequest` when passing an attachment through POST method.
+- Fixed the race condition in cloud game.
+- Fixed the bug of accessing WindowManager from a non-visual context on Android 11.
+
 ## [11.1.0] - 2021-06-29
 
 ### Added
@@ -320,6 +347,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Links -->
 
 [Unreleased]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-6.0.0...HEAD
+[11.3.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-11.2.0...sdk-version-11.3.0
+[11.2.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-11.1.1...sdk-version-11.2.0
+[11.1.1]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-11.1.0...sdk-version-11.1.1
 [11.1.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-11.0.0...sdk-version-11.1.0
 [11.0.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-9.1.1...sdk-version-11.0.0
 [9.1.1]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-9.1.0...sdk-version-9.1.1
@@ -360,3 +390,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [5.0.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-4.41.0...sdk-version-5.0.0
 [4.41.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-4.40.0...sdk-version-4.41.0
 [4.40.0]: https://github.com/facebook/facebook-android-sdk/compare/sdk-version-4.39.0...sdk-version-4.40.0
+
+

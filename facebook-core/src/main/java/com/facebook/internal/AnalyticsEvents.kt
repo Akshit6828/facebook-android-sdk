@@ -106,4 +106,13 @@ object AnalyticsEvents {
   const val PARAMETER_SHARE_MESSENGER_GENERIC_TEMPLATE = "GenericTemplate"
   const val PARAMETER_SHARE_MESSENGER_MEDIA_TEMPLATE = "MediaTemplate"
   const val PARAMETER_SHARE_MESSENGER_OPEN_GRAPH_MUSIC_TEMPLATE = "OpenGraphMusicTemplate"
+  const val EVENT_FOA_LOGIN_BUTTON_CREATE = "foa_login_button_create"
+  const val EVENT_FOA_LOGIN_BUTTON_DID_TAP = "foa_login_button_did_tap"
+  const val EVENT_FOA_DISAMBIGUATION_DIALOG_FB_DID_TAP = "foa_disambiguation_dialog_fb_did_tap"
+  const val EVENT_FOA_DISAMBIGUATION_DIALOG_IG_DID_TAP = "foa_disambiguation_dialog_ig_did_tap"
+  const val EVENT_FOA_DISAMBIGUATION_DIALOG_CANCELLED = "foa_disambiguation_dialog_cancelled"
+  const val EVENT_FOA_FB_LOGIN_BUTTON_CREATE = "foa_fb_login_button_create"
+  const val EVENT_FOA_FB_LOGIN_BUTTON_DID_TAP = "foa_fb_login_button_did_tap"
+  const val EVENT_FOA_IG_LOGIN_BUTTON_CREATE = "foa_ig_login_button_create"
+  const val EVENT_FOA_IG_LOGIN_BUTTON_DID_TAP = "foa_ig_login_button_did_tap"
 }

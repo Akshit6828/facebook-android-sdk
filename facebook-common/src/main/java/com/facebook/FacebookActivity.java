@@ -23,6 +23,7 @@ package com.facebook;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -33,6 +34,8 @@ import com.facebook.internal.NativeProtocol;
 import com.facebook.internal.Utility;
 import com.facebook.internal.instrument.crashshield.AutoHandleExceptions;
 import com.facebook.internal.logging.dumpsys.EndToEndDumpsysHelper;
+import com.facebook.internal.qualityvalidation.Excuse;
+import com.facebook.internal.qualityvalidation.ExcusesForDesignViolations;
 import com.facebook.login.LoginFragment;
 import com.facebook.referrals.ReferralFragment;
 import com.facebook.share.internal.DeviceShareDialogFragment;
@@ -54,6 +57,7 @@ import java.io.PrintWriter;
  *
  * Do not start this activity directly.
  */
+@ExcusesForDesignViolations(@Excuse(type = "MISSING_UNIT_TEST", reason = "Legacy"))
 public class FacebookActivity extends FragmentActivity {
 
   public static String PASS_THROUGH_CANCEL_ACTION = "PassThrough";
@@ -102,6 +106,9 @@ public class FacebookActivity extends FragmentActivity {
 
         fragment = dialogFragment;
       } else if (DeviceShareDialogFragment.TAG.equals(intent.getAction())) {
+        Log.w(
+            TAG,
+            "Please stop use Device Share Dialog, this feature has been disabled and all related classes in Facebook Android SDK will be removed from v13.0.0 release.");
         DeviceShareDialogFragment dialogFragment = new DeviceShareDialogFragment();
         dialogFragment.setRetainInstance(true);
         dialogFragment.setShareContent((ShareContent) intent.getParcelableExtra("content"));

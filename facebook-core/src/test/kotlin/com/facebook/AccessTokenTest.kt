@@ -19,29 +19,48 @@
  */
 package com.facebook
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.test.core.app.ApplicationProvider
 import com.facebook.internal.Utility
 import com.facebook.internal.Utility.arrayList
 import com.facebook.internal.Utility.hashSet
 import com.nhaarman.mockitokotlin2.any
+import com.nhaarman.mockitokotlin2.whenever
 import java.util.Date
 import org.json.JSONObject
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Matchers
 import org.powermock.api.mockito.PowerMockito
 import org.powermock.api.support.membermodification.MemberModifier
 import org.powermock.core.classloader.annotations.PrepareForTest
 
-@PrepareForTest(Utility::class, FacebookSdk::class)
+@PrepareForTest(Utility::class, FacebookSdk::class, LocalBroadcastManager::class)
 class AccessTokenTest : FacebookPowerMockTestCase() {
+
+  private val mockTokenString = "A token of my esteem"
+  private val mockAppID = "1234"
+  private val mockUserID = "1000"
+
   @Before
   fun before() {
     MemberModifier.stub<Any>(
             PowerMockito.method(Utility::class.java, "awaitGetGraphMeRequestWithCache"))
-        .toReturn(JSONObject().put("id", "1000"))
+        .toReturn(JSONObject().put("id", mockUserID))
+
+    PowerMockito.mockStatic(FacebookSdk::class.java)
+    whenever(FacebookSdk.isInitialized()).thenReturn(true)
+    whenever(FacebookSdk.getApplicationId()).thenReturn(mockAppID)
+    whenever(FacebookSdk.getApplicationContext())
+        .thenReturn(ApplicationProvider.getApplicationContext())
+    PowerMockito.mockStatic(LocalBroadcastManager::class.java)
+    val mockLocalBroadcastManager = PowerMockito.mock(LocalBroadcastManager::class.java)
+    whenever(LocalBroadcastManager.getInstance(Matchers.isA(Context::class.java)))
+        .thenReturn(mockLocalBroadcastManager)
   }
 
   @Test
@@ -164,10 +183,10 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
     LegacyTokenHelper.putToken(bundle, token)
     // no app id
     PowerMockito.mockStatic(FacebookSdk::class.java)
-    PowerMockito.`when`(FacebookSdk.isInitialized()).thenReturn(true)
-    PowerMockito.`when`(FacebookSdk.getApplicationId()).thenReturn(applicationId)
-    PowerMockito.`when`(FacebookSdk.getAutoLogAppEventsEnabled()).thenReturn(false)
-    PowerMockito.`when`(FacebookSdk.getApplicationContext())
+    whenever(FacebookSdk.isInitialized()).thenReturn(true)
+    whenever(FacebookSdk.getApplicationId()).thenReturn(applicationId)
+    whenever(FacebookSdk.getAutoLogAppEventsEnabled()).thenReturn(false)
+    whenever(FacebookSdk.getApplicationContext())
         .thenReturn(ApplicationProvider.getApplicationContext())
     val accessToken = AccessToken.createFromLegacyCache(bundle)
     Assert.assertNotNull(accessToken)
@@ -247,11 +266,11 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
     val applicationId = "1000"
     var capturedGraphRequestCallback: Utility.GraphMeRequestWithCacheCallback? = null
     PowerMockito.mockStatic(Utility::class.java)
-    PowerMockito.`when`(Utility.getGraphMeRequestWithCacheAsync(any(), any())).thenAnswer {
+    whenever(Utility.getGraphMeRequestWithCacheAsync(any(), any())).thenAnswer {
       capturedGraphRequestCallback = it.arguments[1] as Utility.GraphMeRequestWithCacheCallback?
       Unit
     }
-    PowerMockito.`when`(Utility.getBundleLongAsDate(any(), any(), any())).thenCallRealMethod()
+    whenever(Utility.getBundleLongAsDate(any(), any(), any())).thenCallRealMethod()
     intent.putExtra(AccessToken.ACCESS_TOKEN_KEY, tokenString)
     intent.putExtra(AccessToken.EXPIRES_IN_KEY, "0")
     var capturedAccessToken: AccessToken? = null
@@ -306,9 +325,9 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
             listOf("declined permission_1", "declined permission_2"),
             listOf("expired permission_1", "expired permission_2"),
             AccessTokenSource.WEB_VIEW,
-            Date(2015, 3, 3),
-            Date(2015, 1, 1),
-            Date(2015, 3, 3))
+            Date(2_015, 3, 3),
+            Date(2_015, 1, 1),
+            Date(2_015, 3, 3))
     val jsonObject = accessToken.toJSONObject()
     val deserializedAccessToken = AccessToken.createFromJSONObject(jsonObject)
     Assert.assertEquals(accessToken, deserializedAccessToken)
@@ -325,8 +344,8 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
             listOf("declined permission_1", "declined permission_2"),
             listOf(),
             AccessTokenSource.WEB_VIEW,
-            Date(2015, 3, 3),
-            Date(2015, 1, 1),
+            Date(2_015, 3, 3),
+            Date(2_015, 1, 1),
             Date(0))
     val jsonObject = accessToken.toJSONObject()
     jsonObject.remove("data_access_expiration_time")
@@ -387,7 +406,7 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
     Assert.assertEquals(userId, accessToken.userId)
     // Allow slight variation for test execution time
     val delta = accessToken.lastRefresh.time - Date().time
-    Assert.assertTrue(delta < 1000)
+    Assert.assertTrue(delta < 1_000)
   }
 
   @Test
@@ -396,9 +415,9 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
     val permissions: Set<String?> = hashSet<String?>("walk", "chew gum")
     val declinedPermissions: Set<String?> = hashSet<String?>("jump")
     val expiredPermissions: Set<String?> = hashSet<String?>("smile")
-    val expires = Date(2025, 5, 3)
-    val lastRefresh = Date(2023, 8, 15)
-    val dataAccessExpirationTime = Date(2025, 5, 3)
+    val expires = Date(2_025, 5, 3)
+    val lastRefresh = Date(2_023, 8, 15)
+    val dataAccessExpirationTime = Date(2_025, 5, 3)
     val source = AccessTokenSource.WEB_VIEW
     val applicationId = "1234"
     val userId = "1000"
@@ -424,5 +443,159 @@ class AccessTokenTest : FacebookPowerMockTestCase() {
     Assert.assertEquals(applicationId, accessToken.applicationId)
     Assert.assertEquals(userId, accessToken.userId)
     Assert.assertEquals(dataAccessExpirationTime, accessToken.dataAccessExpirationTime)
+  }
+
+  @Test
+  fun `test access token creation with default graph domain`() {
+    val accessToken =
+        AccessToken(
+            mockTokenString, mockAppID, mockUserID, null, null, null, null, null, null, null)
+    Assert.assertEquals(accessToken.graphDomain, "facebook")
+  }
+
+  @Test
+  fun `test access token creation with Instagram graph domain`() {
+    val accessToken =
+        AccessToken(
+            mockTokenString,
+            mockAppID,
+            mockUserID,
+            null, // permissions
+            null, // declined permissions
+            null, // expired permissions
+            null, // token source
+            null, // expiration time
+            null, // last refresh
+            null, // data access expiration time
+            "instagram")
+    Assert.assertEquals(accessToken.graphDomain, "instagram")
+  }
+
+  @Test
+  fun `test is logged in with Instagram`() {
+    val instagramAccessToken =
+        AccessToken(
+            mockTokenString,
+            mockAppID,
+            mockUserID,
+            null, // permissions
+            null, // declined permissions
+            null, // expired permissions
+            null, // token source
+            null, // expiration time
+            null, // last refresh
+            null, // data access expiration time
+            "instagram")
+    val facebookAccessToken =
+        AccessToken(
+            mockTokenString,
+            mockAppID,
+            mockUserID,
+            null, // permissions
+            null, // declined permissions
+            null, // expired permissions
+            null, // token source
+            null, // expiration time
+            null, // last refresh
+            null, // data access expiration time
+            "facebok")
+
+    AccessToken.setCurrentAccessToken(instagramAccessToken)
+    Assert.assertTrue(AccessToken.isLoggedInWithInstagram())
+    AccessToken.setCurrentAccessToken(facebookAccessToken)
+    Assert.assertFalse(AccessToken.isLoggedInWithInstagram())
+  }
+
+  @Test
+  fun `test default token source for Facebook domain`() {
+    val token = getAccessTokenWithSpecifiedSource("facebook", null)
+    Assert.assertEquals(token.source, AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test application web source for Facebook domain`() {
+    val token =
+        getAccessTokenWithSpecifiedSource("facebook", AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+    Assert.assertEquals(token.source, AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test chrome custom tab source for Facebook domain`() {
+    val token = getAccessTokenWithSpecifiedSource("facebook", AccessTokenSource.CHROME_CUSTOM_TAB)
+    Assert.assertEquals(token.source, AccessTokenSource.CHROME_CUSTOM_TAB)
+  }
+
+  @Test
+  fun `test webview source for Facebook domain`() {
+    val token = getAccessTokenWithSpecifiedSource("facebook", AccessTokenSource.WEB_VIEW)
+    Assert.assertEquals(token.source, AccessTokenSource.WEB_VIEW)
+  }
+
+  @Test
+  fun `test default token source for Gaming domain`() {
+    val token = getAccessTokenWithSpecifiedSource("gaming", null)
+    Assert.assertEquals(token.source, AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test application web source for Gaming domain`() {
+    val token =
+        getAccessTokenWithSpecifiedSource("gaming", AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+    Assert.assertEquals(token.source, AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test chrome custom tab source for Gaming domain`() {
+    val token = getAccessTokenWithSpecifiedSource("gaming", AccessTokenSource.CHROME_CUSTOM_TAB)
+    Assert.assertEquals(token.source, AccessTokenSource.CHROME_CUSTOM_TAB)
+  }
+
+  @Test
+  fun `test webview source for Gaming domain`() {
+    val token = getAccessTokenWithSpecifiedSource("gaming", AccessTokenSource.WEB_VIEW)
+    Assert.assertEquals(token.source, AccessTokenSource.WEB_VIEW)
+  }
+
+  @Test
+  fun `test default token source for Instagram domain`() {
+    val token = getAccessTokenWithSpecifiedSource("instagram", null)
+    Assert.assertEquals(token.source, AccessTokenSource.INSTAGRAM_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test application web source for Instagram domain`() {
+    val token =
+        getAccessTokenWithSpecifiedSource("instagram", AccessTokenSource.FACEBOOK_APPLICATION_WEB)
+    Assert.assertEquals(token.source, AccessTokenSource.INSTAGRAM_APPLICATION_WEB)
+  }
+
+  @Test
+  fun `test chrome custom tab source for Instagram domain`() {
+    val token = getAccessTokenWithSpecifiedSource("instagram", AccessTokenSource.CHROME_CUSTOM_TAB)
+    Assert.assertEquals(token.source, AccessTokenSource.INSTAGRAM_CUSTOM_CHROME_TAB)
+  }
+
+  @Test
+  fun `test webview source for Instagram domain`() {
+    val token = getAccessTokenWithSpecifiedSource("instagram", AccessTokenSource.WEB_VIEW)
+    Assert.assertEquals(token.source, AccessTokenSource.INSTAGRAM_WEB_VIEW)
+  }
+
+  fun getAccessTokenWithSpecifiedSource(
+      graphDomain: String,
+      tokenSource: AccessTokenSource?
+  ): AccessToken {
+    return AccessToken(
+        mockTokenString,
+        mockAppID,
+        mockUserID,
+        null, // permissions
+        null, // declined permissions
+        null, // expired permissions
+        tokenSource,
+        null, // expiration time
+        null, // last refresh
+        null, // data access expiration time
+        graphDomain)
   }
 }

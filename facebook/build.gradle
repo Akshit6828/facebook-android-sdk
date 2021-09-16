@@ -20,6 +20,7 @@
 
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
+apply plugin: 'org.jetbrains.dokka'
 
 project.group 'com.facebook.android'
 
@@ -97,29 +98,12 @@ android {
 
     sourceSets {
         test.java.srcDirs += 'src/test/kotlin'
-        test {
-            java {
-                exclude '**/MonitorTest.java'
-                exclude '**/MonitorLoggingManagerTest.java'
-                exclude '**/UserSettingsManagerTest.java'
-                exclude '**/LoginManagerTest.java'
-
-                if (System.getenv("GITHUB_ACTIONS") == "1") {
-                    exclude '**/OnDeviceProcessingManagerTest.java'
-                }
-            }
-        }
     }
+
     testOptions {
         unitTests.all {
             jvmArgs '-XX:MaxPermSize=1024m'
             maxHeapSize = "1024m"
-            // CrashShieldHandlerDebugTest is only available on Sandcastle and Github Actions
-            // Because local compiling environment may recompile CrashShieldHandler multiple times
-            // and generate false signals
-            if (System.getenv("SANDCASTLE") != "1" && System.getenv("GITHUB_ACTIONS") != "1") {
-                exclude "com/facebook/internal/instrument/crashshield/CrashShieldHandlerDebugTest.class"
-            }
         }
     }
 
@@ -130,7 +114,6 @@ android {
                 systemProperty 'robolectric.dependency.repo.id', 'central'
                 systemProperty "java.net.preferIPv6Addresses", "true"
                 systemProperty "java.net.preferIPv4Stack", "false"
-
             }
         }
     }
@@ -146,6 +129,21 @@ afterEvaluate {
 }
 repositories {
     maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
+}
+
+tasks.named("dokkaJavadoc").configure {
+    dokkaSourceSets {
+        named("main").configure {
+            sourceRoots.from(file("../facebook-core/src/main"))
+            sourceRoots.from(file("../facebook-common/src/main"))
+            sourceRoots.from(file("../facebook-login/src/main"))
+            sourceRoots.from(file("../facebook-share/src/main"))
+            sourceRoots.from(file("../facebook-applinks/src/main"))
+            sourceRoots.from(file("../facebook-messenger/src/main"))
+            sourceRoots.from(file("../facebook-gameservices/src/main"))
+            includes.from("../facebook-core/src/main/java/com/facebook/internal/package-info.md")
+        }
+    }
 }
 
 apply from: "${rootDir}/maven.gradle"

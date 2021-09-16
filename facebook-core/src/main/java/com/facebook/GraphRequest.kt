@@ -31,6 +31,7 @@ import android.os.Parcelable
 import android.text.TextUtils
 import android.util.Log
 import android.util.Pair
+import androidx.annotation.VisibleForTesting
 import com.facebook.GraphResponse.Companion.constructErrorResponses
 import com.facebook.GraphResponse.Companion.fromHttpConnection
 import com.facebook.internal.AttributionIdentifiers.Companion.getAttributionIdentifiers
@@ -39,7 +40,9 @@ import com.facebook.internal.Logger
 import com.facebook.internal.Logger.Companion.log
 import com.facebook.internal.Logger.Companion.registerAccessToken
 import com.facebook.internal.NativeProtocol
+import com.facebook.internal.ServerProtocol.getFacebookGraphUrlBase
 import com.facebook.internal.ServerProtocol.getGraphUrlBase
+import com.facebook.internal.ServerProtocol.getGraphUrlBaseForSubdomain
 import com.facebook.internal.ServerProtocol.getGraphVideoUrlBase
 import com.facebook.internal.Utility.copyAndCloseInputStream
 import com.facebook.internal.Utility.disconnectQuietly
@@ -199,6 +202,7 @@ class GraphRequest {
     }
 
   private var skipClientToken = false
+  private var forceApplicationRequest = false
   private var overriddenURL: String? = null
 
   companion object {
@@ -207,7 +211,9 @@ class GraphRequest {
      * enforced on the service side by the Facebook platform, not by the Request class.
      */
     const val MAXIMUM_BATCH_SIZE = 50
-    val TAG = GraphRequest::class.java.simpleName
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    @JvmField
+    internal val TAG = GraphRequest::class.java.simpleName
     private const val VIDEOS_SUFFIX = "/videos"
     private const val ME = "me"
     private const val MY_FRIENDS = "me/friends"
@@ -1448,6 +1454,11 @@ class GraphRequest {
     this.skipClientToken = skipClientToken
   }
 
+  /** This is an internal function that is not meant to be used by developers. */
+  fun setForceApplicationRequest(forceOverride: Boolean) {
+    this.forceApplicationRequest = forceOverride
+  }
+
   /**
    * Executes this request on the current thread and blocks while waiting for the response.
    *
@@ -1502,22 +1513,12 @@ class GraphRequest {
   private fun addCommonParameters() {
     val accessToken = this.accessToken
     val parameters = this.parameters
-    if (accessToken != null) {
-      if (!parameters.containsKey(ACCESS_TOKEN_PARAM)) {
-        val token = accessToken.token
-        registerAccessToken(token)
-        parameters.putString(ACCESS_TOKEN_PARAM, token)
-      }
-    } else if (!skipClientToken && !parameters.containsKey(ACCESS_TOKEN_PARAM)) {
-      val appID = FacebookSdk.getApplicationId()
-      val clientToken = FacebookSdk.getClientToken()
-      if (!isNullOrEmpty(appID) && !isNullOrEmpty(clientToken)) {
-        val accessToken = "$appID|$clientToken"
-        parameters.putString(ACCESS_TOKEN_PARAM, accessToken)
-      } else {
-        logd(
-            TAG,
-            "Warning: Request without access token missing application ID or" + " client token.")
+    if (!skipClientToken && shouldForceClientTokenForRequest()) {
+      parameters.putString(ACCESS_TOKEN_PARAM, getClientTokenForRequest())
+    } else {
+      val accessTokenForRequest = getAccessTokenToUseForRequest()
+      if (accessTokenForRequest != null) {
+        parameters.putString(ACCESS_TOKEN_PARAM, accessTokenForRequest)
       }
     }
     // check access token again to confirm that client token is available
@@ -1534,6 +1535,33 @@ class GraphRequest {
     } else if (FacebookSdk.isLoggingBehaviorEnabled(LoggingBehavior.GRAPH_API_DEBUG_WARNING)) {
       parameters.putString(DEBUG_PARAM, DEBUG_SEVERITY_WARNING)
     }
+  }
+
+  private fun getAccessTokenToUseForRequest(): String? {
+    val accessToken = this.accessToken
+    if (accessToken != null) {
+      if (!this.parameters.containsKey(ACCESS_TOKEN_PARAM)) {
+        val token = accessToken.token
+        registerAccessToken(token)
+        return token
+      }
+    } else if (!skipClientToken && !this.parameters.containsKey(ACCESS_TOKEN_PARAM)) {
+      return getClientTokenForRequest()
+    }
+    return this.parameters.getString(ACCESS_TOKEN_PARAM)
+  }
+
+  private fun getClientTokenForRequest(): String? {
+    var accessToken: String? = null
+    val appID = FacebookSdk.getApplicationId()
+    val clientToken = FacebookSdk.getClientToken()
+    if (!isNullOrEmpty(appID) && !isNullOrEmpty(clientToken)) {
+      accessToken = checkNotNull(appID) + "|" + checkNotNull(clientToken)
+    } else {
+      logd(
+          TAG, "Warning: Request without access token missing application ID or" + " client token.")
+    }
+    return accessToken
   }
 
   private fun appendParametersToBaseUrl(baseUrl: String, isBatch: Boolean): String {
@@ -1570,7 +1598,7 @@ class GraphRequest {
       if (overriddenURL != null) {
         throw FacebookException("Can't override URL for a batch request")
       }
-      val baseUrl = String.format("%s/%s", getGraphUrlBase(), graphPathWithVersion)
+      val baseUrl = getUrlWithGraphPath(getGraphUrlBase())
       addCommonParameters()
       val fullUrl = appendParametersToBaseUrl(baseUrl, true)
       val uri = Uri.parse(fullUrl)
@@ -1589,9 +1617,9 @@ class GraphRequest {
               graphPath.endsWith(VIDEOS_SUFFIX)) {
             getGraphVideoUrlBase()
           } else {
-            getGraphUrlBase()
+            getGraphUrlBaseForSubdomain(FacebookSdk.getGraphDomain())
           }
-      val baseUrl = String.format("%s/%s", graphBaseUrlBase, graphPathWithVersion)
+      val baseUrl = getUrlWithGraphPath(graphBaseUrlBase)
       addCommonParameters()
       return appendParametersToBaseUrl(baseUrl, false)
     }
@@ -1603,6 +1631,50 @@ class GraphRequest {
         graphPath
       } else String.format("%s/%s", version, graphPath)
     }
+
+  private fun getUrlWithGraphPath(baseUrl: String): String {
+    var baseUrl = baseUrl
+    if (!isValidGraphRequestForDomain()) {
+      // If not valid for current domain, re-route back to facebook domain
+      baseUrl = getFacebookGraphUrlBase()
+    }
+    return String.format("%s/%s", baseUrl, graphPathWithVersion)
+  }
+
+  private fun shouldForceClientTokenForRequest(): Boolean {
+    val tokenToUse = getAccessTokenToUseForRequest()
+    val isAlreadyUsingClientToken = tokenToUse?.contains("|") ?: false
+    // Requests to the application endpoint with a "cached" IG user token should be overwritten
+    // with a client token
+    val isInstagramUserToken =
+        tokenToUse != null && tokenToUse.startsWith("IG") && !isAlreadyUsingClientToken
+    if (isInstagramUserToken && isApplicationRequest()) {
+      return true
+    }
+    // Re-routed requests should also use a client token by default
+    if (!isValidGraphRequestForDomain() && !isAlreadyUsingClientToken) {
+      return true
+    }
+    return false
+  }
+
+  private fun isValidGraphRequestForDomain(): Boolean {
+    val graphDomain = FacebookSdk.getGraphDomain()
+    if (graphDomain != FacebookSdk.INSTAGRAM_COM) {
+      // All graph paths are valid for facebook and gaming domains
+      return true
+    }
+    // Application requests should always go to the Facebook domain
+    return !isApplicationRequest()
+  }
+
+  private fun isApplicationRequest(): Boolean {
+    if (this.graphPath == null) {
+      return false
+    }
+    val applicationEndpointRegex = "^/?" + FacebookSdk.getApplicationId() + "/?.*"
+    return this.forceApplicationRequest || Pattern.matches(applicationEndpointRegex, this.graphPath)
+  }
 
   private class Attachment(val request: GraphRequest, val value: Any?)
 
@@ -1894,7 +1966,7 @@ class GraphRequest {
     fun onCompleted(obj: JSONObject?, response: GraphResponse?)
   }
 
-  internal class ParcelableResourceWithMimeType<RESOURCE : Parcelable?> : Parcelable {
+  class ParcelableResourceWithMimeType<RESOURCE : Parcelable?> : Parcelable {
     val mimeType: String?
     val resource: RESOURCE?
 
@@ -1924,6 +1996,7 @@ class GraphRequest {
     }
 
     companion object {
+      @JvmField
       val CREATOR: Parcelable.Creator<ParcelableResourceWithMimeType<*>?> =
           object : Parcelable.Creator<ParcelableResourceWithMimeType<*>?> {
             override fun createFromParcel(source: Parcel): ParcelableResourceWithMimeType<*> {

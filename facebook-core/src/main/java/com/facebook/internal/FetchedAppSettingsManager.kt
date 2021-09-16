@@ -26,7 +26,6 @@ import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
 import android.util.Log
-import androidx.annotation.VisibleForTesting
 import com.facebook.FacebookSdk
 import com.facebook.GraphRequest
 import com.facebook.appevents.codeless.internal.UnityReflection
@@ -227,8 +226,7 @@ object FetchedAppSettingsManager {
     return fetchedAppSettings
   }
 
-  @VisibleForTesting
-  fun parseAppSettingsFromJSON(
+  internal fun parseAppSettingsFromJSON(
       applicationId: String,
       settingsJSON: JSONObject
   ): FetchedAppSettings {
@@ -295,6 +293,7 @@ object FetchedAppSettingsManager {
     }
     appSettingsParams.putString(APPLICATION_FIELDS, TextUtils.join(",", appSettingFields))
     val request = GraphRequest.newGraphPathRequest(null, applicationId, null)
+    request.setForceApplicationRequest(true)
     request.setSkipClientToken(true)
     request.parameters = appSettingsParams
     return request.executeAndWait().jsonObject ?: JSONObject()

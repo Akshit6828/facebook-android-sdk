@@ -47,6 +47,7 @@ object ServerProtocol {
   const val DIALOG_PARAM_IES = "ies"
   const val DIALOG_PARAM_LEGACY_OVERRIDE = "legacy_override"
   const val DIALOG_PARAM_LOGIN_BEHAVIOR = "login_behavior"
+  const val DIALOG_PARAM_NONCE = "nonce"
   const val DIALOG_PARAM_REDIRECT_URI = "redirect_uri"
   const val DIALOG_PARAM_RESPONSE_TYPE = "response_type"
   const val DIALOG_PARAM_RETURN_SCOPES = "return_scopes"
@@ -60,7 +61,13 @@ object ServerProtocol {
   const val DIALOG_PARAM_MESSENGER_PAGE_ID = "messenger_page_id"
   const val DIALOG_PARAM_RESET_MESSENGER_STATE = "reset_messenger_state"
   const val DIALOG_REREQUEST_AUTH_TYPE = "rerequest"
+  const val DIALOG_PARAM_FX_APP = "fx_app"
+  const val DIALOG_PARAM_SKIP_DEDUPE = "skip_dedupe"
+  const val DIALOG_RESPONSE_TYPE_TOKEN_AND_SCOPES =
+      "token,signed_request,graph_domain,granted_scopes"
   const val DIALOG_RESPONSE_TYPE_TOKEN_AND_SIGNED_REQUEST = "token,signed_request,graph_domain"
+  const val DIALOG_RESPONSE_TYPE_ID_TOKEN_AND_SIGNED_REQUEST =
+      "id_token,token,signed_request,graph_domain"
   const val DIALOG_RETURN_SCOPES_TRUE = "true"
   const val DIALOG_REDIRECT_URI = "fbconnect://success"
   const val DIALOG_REDIRECT_CHROME_OS_URI = "fbconnect://chrome_os_success"
@@ -72,6 +79,8 @@ object ServerProtocol {
   const val FALLBACK_DIALOG_PARAM_METHOD_RESULTS = "method_results"
   const val FALLBACK_DIALOG_PARAM_VERSION = "version"
   const val FALLBACK_DIALOG_DISPLAY_VALUE_TOUCH = "touch"
+
+  const val INSTAGRAM_OAUTH_PATH = "oauth/authorize"
 
   // URL components
   private const val GRAPH_VIDEO_URL_FORMAT = "https://graph-video.%s"
@@ -86,10 +95,22 @@ object ServerProtocol {
       Utility.unmodifiableCollection("access_denied", "OAuthAccessDeniedException")
   @JvmStatic val errorConnectionFailure = "CONNECTION_FAILURE"
   @JvmStatic
-  fun getDialogAuthority() = String.format(DIALOG_AUTHORITY_FORMAT, FacebookSdk.getFacebookDomain())
-  @JvmStatic fun getGraphUrlBase() = String.format(GRAPH_URL_FORMAT, FacebookSdk.getGraphDomain())
+  fun getDialogAuthority(): String =
+      String.format(DIALOG_AUTHORITY_FORMAT, FacebookSdk.getFacebookDomain())
   @JvmStatic
-  fun getGraphVideoUrlBase() = String.format(GRAPH_VIDEO_URL_FORMAT, FacebookSdk.getGraphDomain())
+  fun getInstagramDialogAuthority(): String =
+      String.format(DIALOG_AUTHORITY_FORMAT, FacebookSdk.getInstagramDomain())
+  @JvmStatic
+  fun getGraphUrlBase(): String = String.format(GRAPH_URL_FORMAT, FacebookSdk.getGraphDomain())
+  @JvmStatic
+  fun getGraphVideoUrlBase(): String =
+      String.format(GRAPH_VIDEO_URL_FORMAT, FacebookSdk.getGraphDomain())
+  @JvmStatic
+  fun getFacebookGraphUrlBase(): String =
+      String.format(GRAPH_URL_FORMAT, FacebookSdk.getFacebookDomain())
+  @JvmStatic
+  fun getGraphUrlBaseForSubdomain(subdomain: String): String =
+      String.format(GRAPH_URL_FORMAT, subdomain)
 
   @JvmStatic
   fun getQueryParamsForPlatformActivityIntentWebFallback(

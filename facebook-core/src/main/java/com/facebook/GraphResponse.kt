@@ -172,7 +172,7 @@ internal constructor(
   }
 
   companion object {
-    val TAG: String? = GraphResponse::class.java.canonicalName
+    private val TAG: String? = GraphResponse::class.java.canonicalName
     /**
      * Property name of non-JSON results in the GraphObject. Certain calls to Facebook result in a
      * non-JSON response (e.g., the string literal "true" or "false"). To present a consistent way
@@ -353,6 +353,15 @@ internal constructor(
       }
     }
 
+    /**
+     * Build GraphResponse with Error
+     *
+     * @param requests original graph requests
+     * @param connection request url connection
+     * @param error error included in response
+     *
+     * @return graph response with error
+     */
     @JvmStatic
     fun constructErrorResponses(
         requests: List<GraphRequest>,
